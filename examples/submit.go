@@ -16,7 +16,7 @@ import (
 )
 
 // Override with the LEADERBOARD_URL environment variable.
-const defaultLeaderboardURL = "https://your-project.vercel.app"
+const defaultLeaderboardURL = "https://hackathon-leaderboard-alpha.vercel.app"
 
 type submission struct {
 	Team  string  `json:"team"`

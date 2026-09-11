@@ -44,7 +44,7 @@ npm test
 ### `POST /api/scores`: submit a score (open)
 
 ```bash
-curl -X POST https://your-project.vercel.app/api/scores \
+curl -X POST https://hackathon-leaderboard-alpha.vercel.app/api/scores \
   -H 'content-type: application/json' \
   -d '{"team": "Team Rocket", "score": 0.1234, "seed": 42}'
 ```
