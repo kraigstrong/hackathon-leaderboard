@@ -8,21 +8,20 @@ Static HTML plus one Vercel function (`api/scores.js`), with scores stored in Up
 
 ## Deploy to Vercel
 
-1. Install the CLI and link the project:
+1. Create the Vercel project and connect this GitHub repo:
    ```bash
-   npm i -g vercel
-   vercel link
+   npx vercel link --project hackathon-leaderboard
    ```
-2. In the Vercel dashboard, open the project → **Storage** → add **Upstash Redis** (the free tier is plenty) and connect
-   it to the project. This sets the `KV_REST_API_URL` and `KV_REST_API_TOKEN` env vars.
+2. Add a free Upstash Redis database and connect it to the project. This sets the `KV_REST_API_URL` and
+   `KV_REST_API_TOKEN` env vars. `autoUpgrade=false` keeps it from moving to a paid plan if it hits the free limits.
+   ```bash
+   npx vercel integration add upstash/upstash-kv --plan free -m primaryRegion=iad1 -m autoUpgrade=false
+   ```
 3. Set the admin access code:
    ```bash
-   vercel env add ADMIN_CODE production
+   npx vercel env add ADMIN_CODE production
    ```
-4. Deploy:
-   ```bash
-   vercel --prod
-   ```
+4. Push to `main`. Vercel deploys every push to production.
 
 Point the evaluation binaries at the **production** URL. Vercel's Deployment Protection covers preview URLs by default
 and would block their POSTs; if you've enabled it for production too, turn that off.
