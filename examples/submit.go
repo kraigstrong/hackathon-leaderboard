@@ -33,7 +33,7 @@ type submitResult struct {
 	Error string `json:"error"`
 }
 
-// submitScore posts one result and returns the team's current rank.
+// submitScore posts one result and returns the team's current rank on that seed.
 func submitScore(team string, score float64, seed int64) (*submitResult, error) {
 	baseURL := os.Getenv("LEADERBOARD_URL")
 	if baseURL == "" {
@@ -75,5 +75,5 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Submitted! %s is ranked #%d (best score %g, seed %s)\n", *team, result.Rank, result.Best.Score, result.Best.Seed)
+	fmt.Printf("Submitted! %s is ranked #%d on seed %s (best score %g)\n", *team, result.Rank, result.Best.Seed, result.Best.Score)
 }

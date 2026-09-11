@@ -6,13 +6,14 @@
   <meta name="robots" content="noindex">
   <title>Leaderboard Admin</title>
   <link rel="stylesheet" href="/style.css">
+  <script src="/seeds.js"></script>
 </head>
 <body>
   <main>
     <header>
       <div>
         <h1>Leaderboard admin</h1>
-        <p class="sub"><a href="/">View the public board →</a></p>
+        <p class="sub"><a href="/" id="board-link">View the public board →</a></p>
       </div>
       <div class="toolbar" id="toolbar" hidden>
         <button id="refresh">Refresh</button>
@@ -33,7 +34,10 @@
     <section id="panel" hidden>
       <div class="panel-head">
         <p id="summary" class="muted"></p>
-        <input id="filter" type="search" placeholder="Filter by team…" aria-label="Filter by team">
+        <div class="filters">
+          <select id="seed" aria-label="Seed"><option value="">All seeds</option></select>
+          <input id="filter" type="search" placeholder="Filter by team…" aria-label="Filter by team">
+        </div>
       </div>
       <p id="panel-error" class="error" hidden></p>
       <div class="table-wrap">
@@ -60,7 +64,8 @@
     const $ = (id) => document.getElementById(id);
 
     let code = sessionStorage.getItem(CODE_KEY);
-    let data = { leaderboard: [], submissions: [] };
+    let seeds = selectedSeeds();
+    let data = { leaderboard: [], submissions: [], seeds: [] };
 
     async function api(method, query) {
       const res = await fetch(`/api/scores?${query}`, { method, headers: { 'x-admin-code': code } });
@@ -88,8 +93,11 @@
     }
 
     async function load() {
+      const query = seedQuery(seeds);
       try {
-        data = await api('GET', 'all');
+        const body = await api('GET', query ? `all&${query}` : 'all');
+        if (query !== seedQuery(seeds)) return; // the seed changed mid-request
+        data = body;
       } catch (err) {
         return showError(err);
       }
@@ -109,13 +117,19 @@
     }
 
     function render() {
+      renderSeedOptions($('seed'), data.seeds, seeds);
+      const seedParams = seedQuery(seeds);
+      $('board-link').href = seedParams ? `/?${seedParams}` : '/';
+
+      // Badges and warnings describe the board for the selected seeds.
+      const scope = seeds.length ? ` on ${describeSeeds(seeds)}` : '';
       const bestById = new Map(data.leaderboard.map((r) => [r.id, r]));
       const query = $('filter').value.trim().toLowerCase();
       const shown = data.submissions.filter((s) => s.team.toLowerCase().includes(query));
 
       $('summary').textContent =
         `${data.submissions.length} submission${data.submissions.length === 1 ? '' : 's'} ` +
-        `from ${data.leaderboard.length} team${data.leaderboard.length === 1 ? '' : 's'}`;
+        `from ${data.leaderboard.length} team${data.leaderboard.length === 1 ? '' : 's'}${scope}`;
 
       $('rows').replaceChildren(...shown.map((s) => {
         const best = bestById.get(s.id);
@@ -133,8 +147,8 @@
           let warning = '';
           if (best) {
             warning = best.runs === 1
-              ? '\n\nThis is their only run, so the team will disappear from the board.'
-              : '\n\nThis is their best run; their next-best run will take its place.';
+              ? `\n\nThis is their only run${scope}, so the team will disappear from that board.`
+              : `\n\nThis is their best run${scope}; their next-best run will take its place.`;
           }
           if (!confirm(`Delete ${s.team}'s score of ${s.score} (seed ${s.seed})?${warning}`)) return;
           del.disabled = true;
@@ -160,7 +174,7 @@
         return tr;
       }));
 
-      $('empty').textContent = query ? 'No submissions match that filter.' : 'No submissions yet.';
+      $('empty').textContent = query ? 'No submissions match that filter.' : `No submissions${scope} yet.`;
       $('empty').hidden = shown.length > 0;
     }
 
@@ -172,8 +186,9 @@
     };
 
     $('clear').onclick = async () => {
-      const n = data.submissions.length;
-      const answer = prompt(`This permanently deletes all ${n} submissions from the leaderboard.\n\nType CLEAR to confirm.`);
+      // Clearing removes every seed, not just the one being viewed.
+      const n = data.seeds.reduce((total, s) => total + s.submissions, 0);
+      const answer = prompt(`This permanently deletes all ${n} submissions on every seed.\n\nType CLEAR to confirm.`);
       if (answer?.trim() !== 'CLEAR') return;
       try {
         await api('DELETE', 'all');
@@ -186,6 +201,10 @@
     $('refresh').onclick = load;
     $('signout').onclick = () => signOut();
     $('filter').oninput = render;
+    onSeedPicked($('seed'), (picked) => {
+      seeds = picked;
+      load();
+    });
 
     // Keep the list current while the page is open.
     setInterval(() => { if (code && !document.hidden) load(); }, 10000);

@@ -1,25 +1,36 @@
 import { randomUUID } from 'node:crypto';
 import { HttpError, handle, json, requireAdmin } from '../lib/http.js';
-import { MAX_SUBMISSIONS, buildLeaderboard, parseSubmission, teamKey } from '../lib/leaderboard.js';
+import {
+  MAX_SUBMISSIONS,
+  buildLeaderboard,
+  filterBySeeds,
+  parseSubmission,
+  summarizeSeeds,
+  teamKey,
+} from '../lib/leaderboard.js';
 import { getStore } from '../lib/store.js';
 
-// GET /api/scores       public leaderboard, one row per team
-// GET /api/scores?all   (admin) leaderboard plus every submission, newest first
-export const GET = handle(async (request, url) => {
-  if (url.searchParams.has('all')) {
-    requireAdmin(request);
-    const submissions = await getStore().list();
-    const leaderboard = buildLeaderboard(submissions);
-    submissions.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
-    return json({ leaderboard, submissions });
-  }
+const newestFirst = (a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0);
 
-  const leaderboard = buildLeaderboard(await getStore().list());
+// GET /api/scores                 public leaderboard, one row per team, plus every seed seen
+// GET /api/scores?seed=X&seed=Y   leaderboard counting only those seeds
+// GET /api/scores?all             (admin) also returns every matching submission, newest first
+export const GET = handle(async (request, url) => {
+  const admin = url.searchParams.has('all');
+  if (admin) requireAdmin(request);
+
+  const all = await getStore().list();
+  const seeds = url.searchParams.getAll('seed').map((s) => s.trim()).filter(Boolean);
+  const submissions = filterBySeeds(all, seeds);
+  const body = { leaderboard: buildLeaderboard(submissions), seeds: summarizeSeeds(all) };
+
+  if (admin) return json({ ...body, submissions: [...submissions].sort(newestFirst) });
   // A short CDN cache absorbs polling from many open leaderboard tabs.
-  return json({ leaderboard }, 200, { 'cache-control': 'public, max-age=0, s-maxage=2' });
+  return json(body, 200, { 'cache-control': 'public, max-age=0, s-maxage=2' });
 });
 
 // POST /api/scores  {"team": "...", "score": 1.23, "seed": 42}
+// Responds with the team's rank and best score on that seed.
 export const POST = handle(async (request) => {
   const { team, score, seed } = parseSubmission(await request.text());
   const store = getStore();
@@ -31,7 +42,8 @@ export const POST = handle(async (request) => {
   const submission = { id: randomUUID(), team, score, seed, createdAt: new Date().toISOString() };
   await store.add(submission);
 
-  const row = buildLeaderboard([...existing, submission]).find((r) => teamKey(r.team) === teamKey(team));
+  const board = buildLeaderboard(filterBySeeds([...existing, submission], [seed]));
+  const row = board.find((r) => teamKey(r.team) === teamKey(team));
   return json({ submission, rank: row.rank, best: { score: row.score, seed: row.seed } }, 201);
 });
 
