@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hackathon Leaderboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="board">
+    <header>
+      <div>
+        <h1>Hackathon Leaderboard</h1>
+        <p class="sub">Best score per team · lower is better</p>
+      </div>
+      <div class="status" id="status"><span class="dot"></span><span id="status-text">Connecting…</span></div>
+    </header>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="rank">#</th>
+            <th>Team</th>
+            <th class="num">Score</th>
+            <th>Seed</th>
+            <th class="num">Runs</th>
+            <th class="num">Last run</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <p id="empty" class="empty" hidden>No scores yet. Waiting for the first submission…</p>
+    </div>
+  </main>
+
+  <script>
+    const REFRESH_MS = 5000;
+    const rowsEl = document.getElementById('rows');
+    const emptyEl = document.getElementById('empty');
+    const statusEl = document.getElementById('status');
+    const statusText = document.getElementById('status-text');
+
+    // Each team's best submission id from the previous render, used to highlight new bests.
+    let previousBest = null;
+
+    function ago(iso) {
+      const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+      if (s < 10) return 'just now';
+      if (s < 60) return `${s}s ago`;
+      const m = Math.floor(s / 60);
+      if (m < 60) return `${m}m ago`;
+      const h = Math.floor(m / 60);
+      return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`;
+    }
+
+    function cell(text, className, title) {
+      const td = document.createElement('td');
+      td.textContent = text;
+      if (className) td.className = className;
+      if (title) td.title = title;
+      return td;
+    }
+
+    function render(leaderboard) {
+      rowsEl.replaceChildren(...leaderboard.map((r) => {
+        const tr = document.createElement('tr');
+        if (r.rank <= 3) tr.dataset.podium = r.rank;
+        if (previousBest && previousBest.get(r.team.toLowerCase()) !== r.id) tr.classList.add('changed');
+        tr.append(
+          cell(r.rank, 'rank'),
+          cell(r.team, 'team'),
+          cell(String(r.score), 'num score'),
+          cell(r.seed, 'seed', r.seed),
+          cell(r.runs, 'num muted'),
+          cell(ago(r.lastAt), 'num muted', new Date(r.lastAt).toLocaleString()),
+        );
+        return tr;
+      }));
+      previousBest = new Map(leaderboard.map((r) => [r.team.toLowerCase(), r.id]));
+      emptyEl.hidden = leaderboard.length > 0;
+    }
+
+    function setStatus(ok, text) {
+      statusEl.className = `status ${ok ? 'live' : 'down'}`;
+      statusText.textContent = text;
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch('/api/scores');
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+        render(body.leaderboard);
+        setStatus(true, 'Live');
+      } catch (err) {
+        setStatus(false, `Can't load scores (${err.message}). Retrying…`);
+      }
+    }
+
+    // Poll only while the tab is visible, and catch up as soon as it's shown again.
+    async function poll() {
+      if (!document.hidden) await refresh();
+      setTimeout(poll, REFRESH_MS);
+    }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+    refresh().then(() => setTimeout(poll, REFRESH_MS));
+  </script>
+</body>
+</html>

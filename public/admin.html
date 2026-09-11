@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Leaderboard Admin</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Leaderboard admin</h1>
+        <p class="sub"><a href="/">View the public board →</a></p>
+      </div>
+      <div class="toolbar" id="toolbar" hidden>
+        <button id="refresh">Refresh</button>
+        <button id="clear" class="danger">Clear leaderboard</button>
+        <button id="signout">Sign out</button>
+      </div>
+    </header>
+
+    <form id="login" class="card">
+      <label for="code">Access code</label>
+      <div class="row">
+        <input id="code" type="password" autocomplete="current-password" required autofocus>
+        <button class="primary">Sign in</button>
+      </div>
+      <p id="login-error" class="error" hidden></p>
+    </form>
+
+    <section id="panel" hidden>
+      <div class="panel-head">
+        <p id="summary" class="muted"></p>
+        <input id="filter" type="search" placeholder="Filter by team…" aria-label="Filter by team">
+      </div>
+      <p id="panel-error" class="error" hidden></p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Submitted</th>
+              <th>Team</th>
+              <th class="num">Score</th>
+              <th>Seed</th>
+              <th>Standing</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <p id="empty" class="empty" hidden></p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const CODE_KEY = 'leaderboard-admin-code';
+    const $ = (id) => document.getElementById(id);
+
+    let code = sessionStorage.getItem(CODE_KEY);
+    let data = { leaderboard: [], submissions: [] };
+
+    async function api(method, query) {
+      const res = await fetch(`/api/scores?${query}`, { method, headers: { 'x-admin-code': code } });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw Object.assign(new Error(body.error ?? `HTTP ${res.status}`), { status: res.status });
+      return body;
+    }
+
+    function showError(err) {
+      if (err.status === 401) return signOut('Wrong access code.');
+      const el = $('panel').hidden ? $('login-error') : $('panel-error');
+      el.textContent = err.message;
+      el.hidden = false;
+    }
+
+    function signOut(message = '') {
+      code = null;
+      sessionStorage.removeItem(CODE_KEY);
+      $('panel').hidden = $('toolbar').hidden = true;
+      $('login').hidden = false;
+      $('login-error').textContent = message;
+      $('login-error').hidden = !message;
+      $('code').value = '';
+      $('code').focus();
+    }
+
+    async function load() {
+      try {
+        data = await api('GET', 'all');
+      } catch (err) {
+        return showError(err);
+      }
+      $('login').hidden = $('login-error').hidden = true;
+      $('code').value = '';
+      $('panel').hidden = $('toolbar').hidden = false;
+      $('panel-error').hidden = true;
+      render();
+    }
+
+    function cell(content, className, title) {
+      const td = document.createElement('td');
+      td.append(content);
+      if (className) td.className = className;
+      if (title) td.title = title;
+      return td;
+    }
+
+    function render() {
+      const bestById = new Map(data.leaderboard.map((r) => [r.id, r]));
+      const query = $('filter').value.trim().toLowerCase();
+      const shown = data.submissions.filter((s) => s.team.toLowerCase().includes(query));
+
+      $('summary').textContent =
+        `${data.submissions.length} submission${data.submissions.length === 1 ? '' : 's'} ` +
+        `from ${data.leaderboard.length} team${data.leaderboard.length === 1 ? '' : 's'}`;
+
+      $('rows').replaceChildren(...shown.map((s) => {
+        const best = bestById.get(s.id);
+        let standing = '';
+        if (best) {
+          standing = document.createElement('span');
+          standing.className = 'badge';
+          standing.textContent = `Best · #${best.rank}`;
+        }
+
+        const del = document.createElement('button');
+        del.className = 'danger small';
+        del.textContent = 'Delete';
+        del.onclick = async () => {
+          let warning = '';
+          if (best) {
+            warning = best.runs === 1
+              ? '\n\nThis is their only run, so the team will disappear from the board.'
+              : '\n\nThis is their best run; their next-best run will take its place.';
+          }
+          if (!confirm(`Delete ${s.team}'s score of ${s.score} (seed ${s.seed})?${warning}`)) return;
+          del.disabled = true;
+          try {
+            await api('DELETE', `id=${encodeURIComponent(s.id)}`);
+            await load();
+          } catch (err) {
+            del.disabled = false;
+            showError(err);
+          }
+        };
+
+        const tr = document.createElement('tr');
+        const submitted = new Date(s.createdAt);
+        tr.append(
+          cell(submitted.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }), 'muted', s.createdAt),
+          cell(s.team, 'team'),
+          cell(String(s.score), 'num'),
+          cell(s.seed, 'seed', s.seed),
+          cell(standing),
+          cell(del, 'num'),
+        );
+        return tr;
+      }));
+
+      $('empty').textContent = query ? 'No submissions match that filter.' : 'No submissions yet.';
+      $('empty').hidden = shown.length > 0;
+    }
+
+    $('login').onsubmit = (e) => {
+      e.preventDefault();
+      code = $('code').value;
+      sessionStorage.setItem(CODE_KEY, code);
+      load();
+    };
+
+    $('clear').onclick = async () => {
+      const n = data.submissions.length;
+      const answer = prompt(`This permanently deletes all ${n} submissions from the leaderboard.\n\nType CLEAR to confirm.`);
+      if (answer?.trim() !== 'CLEAR') return;
+      try {
+        await api('DELETE', 'all');
+        await load();
+      } catch (err) {
+        showError(err);
+      }
+    };
+
+    $('refresh').onclick = load;
+    $('signout').onclick = () => signOut();
+    $('filter').oninput = render;
+
+    // Keep the list current while the page is open.
+    setInterval(() => { if (code && !document.hidden) load(); }, 10000);
+
+    if (code) load();
+  </script>
+</body>
+</html>

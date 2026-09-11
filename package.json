@@ -1,0 +1,12 @@
+{
+  "name": "hackathon-leaderboard",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "dev": "node dev.js",
+    "test": "node --test"
+  }
+}
