@@ -57,8 +57,14 @@ header {
 h1 { margin: 0; font-size: clamp(1.75rem, 2.5vw + 1rem, 3rem); line-height: 1.1; letter-spacing: -0.02em; }
 .sub { margin: 6px 0 0; color: var(--muted); }
 
-.header-side { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+/* Board filters: game type toggle and seed picker */
+.controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .picker { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.9rem; }
+.tabs { display: inline-flex; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+.tabs button { padding: 6px 16px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-weight: 600; }
+.tabs button:hover { color: var(--text); }
+.tabs button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.board .tabs button { padding: 8px 22px; font-size: 1.1rem; }
 .one-seed .col-seed { display: none; }
 select { max-width: 20rem; }
 
@@ -135,11 +141,10 @@ input, select {
 .row { display: flex; gap: 8px; }
 .row input { flex: 1; min-width: 0; }
 .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
-.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.panel-head p { margin: 0; }
 .filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.summary { margin: 0 0 12px; }
 .error { margin: 12px 0 0; color: var(--danger); }
-.panel-head + .error { margin: 0 0 12px; }
+.summary + .error { margin: 0 0 12px; }
 .badge {
   display: inline-block;
   padding: 2px 8px;

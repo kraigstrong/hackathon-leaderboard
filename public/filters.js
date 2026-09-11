@@ -1,28 +1,48 @@
-// Seed selection shared by the board and admin pages. The selection lives in the URL
-// (?seed=a&seed=b) so a filtered board can be bookmarked or left open on a projector.
+// Board filters shared by the board and admin pages: which game type and which seeds to show.
+// The selection lives in the URL (?game=Wordle&seed=a&seed=b) so a filtered board can be
+// bookmarked or left open on a projector.
 
 // Seeds can't contain control characters, so this can never collide with a real seed.
 const MULTIPLE_SEEDS = 'multiple';
 
-function selectedSeeds() {
-  return new URLSearchParams(location.search).getAll('seed').map((s) => s.trim()).filter(Boolean);
-}
-
-function setSelectedSeeds(seeds) {
+function readFilters() {
   const params = new URLSearchParams(location.search);
-  params.delete('seed');
-  for (const seed of seeds) params.append('seed', seed);
-  const query = params.toString();
-  history.replaceState(null, '', query ? `?${query}` : location.pathname);
+  return {
+    game: params.get('game') ?? '',
+    seeds: params.getAll('seed').map((s) => s.trim()).filter(Boolean),
+  };
 }
 
-function seedQuery(seeds) {
-  return seeds.map((s) => `seed=${encodeURIComponent(s)}`).join('&');
+function filterQuery({ game, seeds }) {
+  const params = new URLSearchParams();
+  if (game) params.set('game', game);
+  for (const seed of seeds) params.append('seed', seed);
+  return params.toString();
+}
+
+function writeFilters(filters) {
+  const query = filterQuery(filters);
+  history.replaceState(null, '', query ? `?${query}` : location.pathname);
 }
 
 function describeSeeds(seeds) {
   if (seeds.length === 0) return 'all seeds';
   return seeds.length === 1 ? `seed ${seeds[0]}` : `seeds ${seeds.join(', ')}`;
+}
+
+// One toggle button per game type; `current` is the game type being shown.
+function renderGameTabs(container, gameTypes, current, onPick) {
+  const signature = `${gameTypes.join('\n')}|${current}`;
+  if (container.dataset.signature === signature) return;
+  container.dataset.signature = signature;
+  container.replaceChildren(...gameTypes.map((game) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = game;
+    button.setAttribute('aria-pressed', String(game === current));
+    button.onclick = () => { if (game !== current) onPick(game); };
+    return button;
+  }));
 }
 
 const shortSeed = (seed) => (seed.length > 24 ? `${seed.slice(0, 23)}…` : seed);
@@ -51,13 +71,11 @@ function renderSeedOptions(select, seeds, selected) {
   select.value = selected.length > 1 ? MULTIPLE_SEEDS : (selected[0] ?? '');
 }
 
-// Calls onChange with the new selection whenever the viewer picks a seed.
+// Calls onChange with the new seed selection whenever the viewer picks one.
 function onSeedPicked(select, onChange) {
   select.addEventListener('change', () => {
     if (select.value === MULTIPLE_SEEDS) return;
-    const seeds = select.value ? [select.value] : [];
-    setSelectedSeeds(seeds);
     select.blur();
-    onChange(seeds);
+    onChange(select.value ? [select.value] : []);
   });
 }

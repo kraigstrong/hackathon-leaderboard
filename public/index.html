@@ -5,20 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Hackathon Leaderboard</title>
   <link rel="stylesheet" href="/style.css">
-  <script src="/seeds.js"></script>
+  <script src="/filters.js"></script>
 </head>
 <body>
   <main class="board">
     <header>
       <div>
         <h1>Hackathon Leaderboard</h1>
-        <p class="sub" id="subtitle">Best score per team across all seeds · lower is better</p>
+        <p class="sub" id="subtitle">Best score per team · lower is better</p>
       </div>
-      <div class="header-side">
-        <label class="picker">Seed <select id="seed"><option value="">All seeds</option></select></label>
-        <div class="status" id="status"><span class="dot"></span><span id="status-text">Connecting…</span></div>
-      </div>
+      <div class="status" id="status"><span class="dot"></span><span id="status-text">Connecting…</span></div>
     </header>
+
+    <div class="controls">
+      <div class="tabs" id="games" role="group" aria-label="Game type"></div>
+      <label class="picker">Seed <select id="seed"><option value="">All seeds</option></select></label>
+    </div>
 
     <div class="table-wrap">
       <table id="table">
@@ -43,12 +45,13 @@
     const rowsEl = document.getElementById('rows');
     const emptyEl = document.getElementById('empty');
     const tableEl = document.getElementById('table');
+    const gamesEl = document.getElementById('games');
     const seedEl = document.getElementById('seed');
     const subtitleEl = document.getElementById('subtitle');
     const statusEl = document.getElementById('status');
     const statusText = document.getElementById('status-text');
 
-    let seeds = selectedSeeds();
+    let filters = readFilters();
     // Each team's best submission id from the previous render, used to highlight new bests.
     let previousBest = null;
 
@@ -70,9 +73,11 @@
       return td;
     }
 
-    function render({ leaderboard, seeds: knownSeeds }) {
+    function render({ game, gameTypes, leaderboard, seeds: knownSeeds }) {
+      const { seeds } = filters;
+      renderGameTabs(gamesEl, gameTypes, game, pickGame);
       renderSeedOptions(seedEl, knownSeeds, seeds);
-      subtitleEl.textContent = `Best score per team on ${describeSeeds(seeds)} · lower is better`;
+      subtitleEl.textContent = `${game} · best score per team on ${describeSeeds(seeds)} · lower is better`;
       // With one seed selected every row would show the same seed.
       tableEl.classList.toggle('one-seed', seeds.length === 1);
 
@@ -93,8 +98,8 @@
       previousBest = new Map(leaderboard.map((r) => [r.team.toLowerCase(), r.id]));
 
       emptyEl.textContent = seeds.length
-        ? `No scores on ${describeSeeds(seeds)} yet. Waiting for the first submission…`
-        : 'No scores yet. Waiting for the first submission…';
+        ? `No ${game} scores on ${describeSeeds(seeds)} yet. Waiting for the first submission…`
+        : `No ${game} scores yet. Waiting for the first submission…`;
       emptyEl.hidden = leaderboard.length > 0;
     }
 
@@ -104,12 +109,12 @@
     }
 
     async function refresh() {
-      const query = seedQuery(seeds);
+      const query = filterQuery(filters);
       try {
         const res = await fetch(query ? `/api/scores?${query}` : '/api/scores');
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-        if (query !== seedQuery(seeds)) return; // the viewer switched seeds mid-request
+        if (query !== filterQuery(filters)) return; // the viewer switched boards mid-request
         render(body);
         setStatus(true, 'Live');
       } catch (err) {
@@ -117,11 +122,16 @@
       }
     }
 
-    onSeedPicked(seedEl, (picked) => {
-      seeds = picked;
+    function applyFilters(next) {
+      filters = next;
+      writeFilters(filters);
       previousBest = null; // switching views isn't a new best
       refresh();
-    });
+    }
+
+    // Seeds differ between game types, so switching games shows all of the new game's seeds.
+    const pickGame = (game) => applyFilters({ game, seeds: [] });
+    onSeedPicked(seedEl, (seeds) => applyFilters({ ...filters, seeds }));
 
     // Poll only while the tab is visible, and catch up as soon as it's shown again.
     async function poll() {

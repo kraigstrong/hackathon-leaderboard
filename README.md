@@ -1,8 +1,19 @@
 # Hackathon Leaderboard
 
-A live leaderboard for the hackathon. Evaluation binaries POST a team name, score, and seed; the board shows each
-team's best (lowest) score. An admin page, protected by an access code, can delete single submissions or clear the
-board.
+A live leaderboard for the hackathon. Evaluation binaries POST a team name, score, seed, and game type; the board shows
+each team's best (lowest) score. Each game type (**Warmup** and **Wordle**) has its own board, and viewers can narrow a
+board to specific seeds. An admin page, protected by an access code, can delete single submissions or clear the board.
+
+## Boards and seeds
+
+The board has a Warmup | Wordle toggle and a seed dropdown. Both choices live in the URL, so a view can be bookmarked
+or left on a projector:
+
+- `/?game=Wordle` shows every Wordle seed.
+- `/?game=Wordle&seed=987654321` shows only runs on that seed. This works before anyone has submitted with the seed,
+  so you can set up the final-scoring view ahead of time.
+
+The game types are defined in `GAME_TYPES` in [`lib/leaderboard.js`](lib/leaderboard.js); the first is the default.
 
 Static HTML plus one Vercel function (`api/scores.js`), with scores stored in Upstash Redis. No npm dependencies.
 
@@ -46,20 +57,21 @@ npm test
 ```bash
 curl -X POST https://hackathon-leaderboard-alpha.vercel.app/api/scores \
   -H 'content-type: application/json' \
-  -d '{"team": "Team Rocket", "score": 0.1234, "seed": 42}'
+  -d '{"team": "Team Rocket", "score": 0.1234, "seed": 42, "gameType": "Wordle"}'
 ```
 
-| Field   | Type             | Rules                                                              |
-|---------|------------------|--------------------------------------------------------------------|
-| `team`  | string           | 1–64 characters. Case and extra whitespace are ignored for grouping. |
-| `score` | number           | Finite. **Lower is better.**                                       |
-| `seed`  | number or string | Required, up to 128 characters. Stored exactly, including 64-bit integers. |
+| Field      | Type             | Rules                                                                      |
+|------------|------------------|----------------------------------------------------------------------------|
+| `team`     | string           | 1–64 characters. Case and extra whitespace are ignored for grouping.       |
+| `score`    | number           | Finite. **Lower is better.**                                               |
+| `seed`     | number or string | Required, up to 128 characters. Stored exactly, including 64-bit integers. |
+| `gameType` | string           | `Warmup` or `Wordle` (any case). Anything else is rejected.                |
 
-Returns `201`:
+Returns `201` with the team's rank and best score for that game type and seed:
 
 ```json
 {
-  "submission": { "id": "…", "team": "Team Rocket", "score": 0.1234, "seed": "42", "createdAt": "…" },
+  "submission": { "id": "…", "team": "Team Rocket", "score": 0.1234, "seed": "42", "gameType": "Wordle", "createdAt": "…" },
   "rank": 3,
   "best": { "score": 0.1234, "seed": "42" }
 }
@@ -69,11 +81,21 @@ Errors return `4xx` with `{"error": "…"}`. See [`examples/submit.go`](examples
 
 ### `GET /api/scores`: leaderboard (open)
 
-One row per team, ranked by its best score. Ties go to whichever team got there first. The response is cached at the
-CDN for 2 seconds.
+| Query                 | Effect                                                                     |
+|-----------------------|----------------------------------------------------------------------------|
+| `game=Wordle`         | Which game type's board to return. Defaults to `Warmup`.                   |
+| `seed=X` (repeatable) | Count only runs on these seeds. Omit for all seeds.                        |
+
+One row per team, ranked by its best score. Ties go to whichever team got there first. `seeds` lists every seed seen for
+the game type, most recently used first. The response is cached at the CDN for 2 seconds.
 
 ```json
-{ "leaderboard": [{ "rank": 1, "team": "…", "score": 0.1, "seed": "7", "id": "…", "bestAt": "…", "lastAt": "…", "runs": 4 }] }
+{
+  "game": "Wordle",
+  "gameTypes": ["Warmup", "Wordle"],
+  "leaderboard": [{ "rank": 1, "team": "…", "score": 0.1, "seed": "7", "id": "…", "bestAt": "…", "lastAt": "…", "runs": 4 }],
+  "seeds": [{ "seed": "7", "submissions": 12, "teams": 5, "lastAt": "…" }]
+}
 ```
 
 ### Admin endpoints
@@ -82,8 +104,8 @@ These need an `x-admin-code: <ADMIN_CODE>` header.
 
 | Request                          | Effect                                                      |
 |----------------------------------|-------------------------------------------------------------|
-| `GET /api/scores?all`            | Leaderboard plus every submission, newest first            |
+| `GET /api/scores?all`            | Same as the public `GET` (accepts `game` and `seed`), plus every matching submission, newest first |
 | `DELETE /api/scores?id=<id>`     | Delete one submission (the team's next-best run takes over) |
-| `DELETE /api/scores?all`         | Clear the leaderboard                                       |
+| `DELETE /api/scores?all`         | Clear everything: every game type and seed                  |
 
 The board holds at most 10,000 submissions; after that, POSTs return `503` until an admin clears it.
