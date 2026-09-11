@@ -17,8 +17,12 @@ async function call(handler, { query = '', method = 'GET', headers = {}, body } 
   return { status: res.status, headers: res.headers, body: await res.json() };
 }
 
+// Object payloads default to the Warmup game type; string payloads are sent as-is.
 const submit = (payload) =>
-  call(POST, { method: 'POST', body: typeof payload === 'string' ? payload : JSON.stringify(payload) });
+  call(POST, {
+    method: 'POST',
+    body: typeof payload === 'string' ? payload : JSON.stringify({ gameType: 'Warmup', ...payload }),
+  });
 
 beforeEach(async () => {
   await call(DELETE, { method: 'DELETE', query: '?all', headers: ADMIN });
@@ -35,7 +39,7 @@ describe('POST /api/scores', () => {
   });
 
   test('keeps 64-bit numeric seeds exact', async () => {
-    const res = await submit('{"team":"Alpha","score":1,"seed":18446744073709551615}');
+    const res = await submit('{"team":"Alpha","score":1,"seed":18446744073709551615,"gameType":"Wordle"}');
     assert.equal(res.body.submission.seed, '18446744073709551615');
   });
 
@@ -55,6 +59,8 @@ describe('POST /api/scores', () => {
     ['a missing score', { team: 'A', seed: 1 }, 400],
     ['a missing seed', { team: 'A', score: 1 }, 400],
     ['a null seed', { team: 'A', score: 1, seed: null }, 400],
+    ['a missing gameType', '{"team":"A","score":1,"seed":1}', 400],
+    ['an unknown gameType', { team: 'A', score: 1, seed: 1, gameType: 'Chess' }, 400],
     ['an oversized body', { team: 'A', score: 1, seed: 1, pad: 'x'.repeat(5000) }, 413],
   ]) {
     test(`rejects ${name}`, async () => {
@@ -89,6 +95,105 @@ describe('GET /api/scores', () => {
     await submit({ team: 'Second', score: 7, seed: 2 });
     const { body } = await call(GET);
     assert.deepEqual(body.leaderboard.map((r) => r.team), ['First', 'Second']);
+  });
+});
+
+describe('game types', () => {
+  test('gameType matches case-insensitively and is stored canonically', async () => {
+    const res = await submit({ team: 'Alpha', score: 1, seed: 1, gameType: ' wordle ' });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.submission.gameType, 'Wordle');
+  });
+
+  test('each game type has its own board; Warmup is the default', async () => {
+    await submit({ team: 'Alpha', score: 5, seed: 1, gameType: 'Warmup' });
+    await submit({ team: 'Bravo', score: 1, seed: 1, gameType: 'Wordle' });
+    await submit({ team: 'Alpha', score: 2, seed: 1, gameType: 'Wordle' });
+
+    const warmup = (await call(GET)).body;
+    assert.equal(warmup.game, 'Warmup');
+    assert.deepEqual(warmup.gameTypes, ['Warmup', 'Wordle']);
+    assert.deepEqual(warmup.leaderboard.map((r) => [r.team, r.score]), [['Alpha', 5]]);
+
+    const wordle = (await call(GET, { query: '?game=wordle' })).body;
+    assert.equal(wordle.game, 'Wordle');
+    assert.deepEqual(wordle.leaderboard.map((r) => [r.team, r.score]), [['Bravo', 1], ['Alpha', 2]]);
+  });
+
+  test('an unknown ?game is rejected', async () => {
+    assert.equal((await call(GET, { query: '?game=Chess' })).status, 400);
+  });
+
+  test('POST reports rank within the submitted game type', async () => {
+    await submit({ team: 'Alpha', score: 1, seed: 1, gameType: 'Warmup' });
+    const res = await submit({ team: 'Bravo', score: 3, seed: 1, gameType: 'Wordle' });
+    assert.equal(res.body.rank, 1); // Alpha's better score is on the other game
+  });
+
+  test('seeds are listed per game type', async () => {
+    await submit({ team: 'Alpha', score: 1, seed: 'warm-seed', gameType: 'Warmup' });
+    await submit({ team: 'Alpha', score: 1, seed: 'word-seed', gameType: 'Wordle' });
+    const { body } = await call(GET, { query: '?game=Wordle' });
+    assert.deepEqual(body.seeds.map((s) => s.seed), ['word-seed']);
+  });
+});
+
+describe('seed filtering', () => {
+  beforeEach(async () => {
+    await submit({ team: 'Alpha', score: 1, seed: 'practice' });
+    await submit({ team: 'Bravo', score: 2, seed: 'practice' });
+    await new Promise((r) => setTimeout(r, 5)); // final runs come strictly later
+    await submit({ team: 'Bravo', score: 9, seed: 'final' });
+    await submit({ team: 'Alpha', score: 4, seed: 'final' });
+    await submit({ team: 'Bravo', score: 3, seed: 'final' });
+  });
+
+  test('?seed ranks only that seed’s runs', async () => {
+    const { body } = await call(GET, { query: '?seed=final' });
+    assert.deepEqual(
+      body.leaderboard.map((r) => [r.rank, r.team, r.score, r.runs]),
+      [
+        [1, 'Bravo', 3, 2],
+        [2, 'Alpha', 4, 1],
+      ],
+    );
+  });
+
+  test('repeated ?seed params combine seeds', async () => {
+    const { body } = await call(GET, { query: '?seed=final&seed=practice' });
+    assert.deepEqual(body.leaderboard.map((r) => [r.team, r.score, r.runs]), [
+      ['Alpha', 1, 2],
+      ['Bravo', 2, 3],
+    ]);
+  });
+
+  test('an unknown seed gives an empty board', async () => {
+    const { body } = await call(GET, { query: '?seed=nope' });
+    assert.deepEqual(body.leaderboard, []);
+  });
+
+  test('lists every seed with counts, most recently used first, regardless of filter', async () => {
+    const { body } = await call(GET, { query: '?seed=practice' });
+    assert.deepEqual(
+      body.seeds.map((s) => [s.seed, s.submissions, s.teams]),
+      [
+        ['final', 3, 2],
+        ['practice', 2, 2],
+      ],
+    );
+  });
+
+  test('POST reports rank on the submitted seed', async () => {
+    const res = await submit({ team: 'Charlie', score: 1.5, seed: 'final' });
+    assert.equal(res.body.rank, 1); // would be #2 across all seeds, behind Alpha's practice 1
+    assert.deepEqual(res.body.best, { score: 1.5, seed: 'final' });
+  });
+
+  test('admin ?all&seed returns only that seed’s submissions', async () => {
+    const { body } = await call(GET, { query: '?all&seed=practice', headers: ADMIN });
+    assert.equal(body.submissions.length, 2);
+    assert.ok(body.submissions.every((s) => s.seed === 'practice'));
+    assert.equal(body.seeds.length, 2);
   });
 });
 

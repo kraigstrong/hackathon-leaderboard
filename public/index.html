@@ -5,32 +5,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Hackathon Leaderboard</title>
   <link rel="stylesheet" href="/style.css">
+  <script src="/filters.js"></script>
 </head>
 <body>
   <main class="board">
     <header>
       <div>
         <h1>Hackathon Leaderboard</h1>
-        <p class="sub">Best score per team · lower is better</p>
+        <p class="sub" id="subtitle">Best score per team · lower is better</p>
       </div>
       <div class="status" id="status"><span class="dot"></span><span id="status-text">Connecting…</span></div>
     </header>
 
+    <div class="controls">
+      <div class="tabs" id="games" role="group" aria-label="Game type"></div>
+      <label class="picker">Seed <select id="seed"><option value="">All seeds</option></select></label>
+    </div>
+
     <div class="table-wrap">
-      <table>
+      <table id="table">
         <thead>
           <tr>
             <th class="rank">#</th>
             <th>Team</th>
             <th class="num">Score</th>
-            <th>Seed</th>
+            <th class="col-seed">Seed</th>
             <th class="num">Runs</th>
             <th class="num">Last run</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
-      <p id="empty" class="empty" hidden>No scores yet. Waiting for the first submission…</p>
+      <p id="empty" class="empty" hidden></p>
     </div>
   </main>
 
@@ -38,9 +44,14 @@
     const REFRESH_MS = 5000;
     const rowsEl = document.getElementById('rows');
     const emptyEl = document.getElementById('empty');
+    const tableEl = document.getElementById('table');
+    const gamesEl = document.getElementById('games');
+    const seedEl = document.getElementById('seed');
+    const subtitleEl = document.getElementById('subtitle');
     const statusEl = document.getElementById('status');
     const statusText = document.getElementById('status-text');
 
+    let filters = readFilters();
     // Each team's best submission id from the previous render, used to highlight new bests.
     let previousBest = null;
 
@@ -62,7 +73,14 @@
       return td;
     }
 
-    function render(leaderboard) {
+    function render({ game, gameTypes, leaderboard, seeds: knownSeeds }) {
+      const { seeds } = filters;
+      renderGameTabs(gamesEl, gameTypes, game, pickGame);
+      renderSeedOptions(seedEl, knownSeeds, seeds);
+      subtitleEl.textContent = `${game} · best score per team on ${describeSeeds(seeds)} · lower is better`;
+      // With one seed selected every row would show the same seed.
+      tableEl.classList.toggle('one-seed', seeds.length === 1);
+
       rowsEl.replaceChildren(...leaderboard.map((r) => {
         const tr = document.createElement('tr');
         if (r.rank <= 3) tr.dataset.podium = r.rank;
@@ -71,13 +89,17 @@
           cell(r.rank, 'rank'),
           cell(r.team, 'team'),
           cell(String(r.score), 'num score'),
-          cell(r.seed, 'seed', r.seed),
+          cell(r.seed, 'seed col-seed', r.seed),
           cell(r.runs, 'num muted'),
           cell(ago(r.lastAt), 'num muted', new Date(r.lastAt).toLocaleString()),
         );
         return tr;
       }));
       previousBest = new Map(leaderboard.map((r) => [r.team.toLowerCase(), r.id]));
+
+      emptyEl.textContent = seeds.length
+        ? `No ${game} scores on ${describeSeeds(seeds)} yet. Waiting for the first submission…`
+        : `No ${game} scores yet. Waiting for the first submission…`;
       emptyEl.hidden = leaderboard.length > 0;
     }
 
@@ -87,16 +109,29 @@
     }
 
     async function refresh() {
+      const query = filterQuery(filters);
       try {
-        const res = await fetch('/api/scores');
+        const res = await fetch(query ? `/api/scores?${query}` : '/api/scores');
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-        render(body.leaderboard);
+        if (query !== filterQuery(filters)) return; // the viewer switched boards mid-request
+        render(body);
         setStatus(true, 'Live');
       } catch (err) {
         setStatus(false, `Can't load scores (${err.message}). Retrying…`);
       }
     }
+
+    function applyFilters(next) {
+      filters = next;
+      writeFilters(filters);
+      previousBest = null; // switching views isn't a new best
+      refresh();
+    }
+
+    // Seeds differ between game types, so switching games shows all of the new game's seeds.
+    const pickGame = (game) => applyFilters({ game, seeds: [] });
+    onSeedPicked(seedEl, (seeds) => applyFilters({ ...filters, seeds }));
 
     // Poll only while the tab is visible, and catch up as soon as it's shown again.
     async function poll() {

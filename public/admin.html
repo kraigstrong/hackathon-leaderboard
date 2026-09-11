@@ -6,13 +6,14 @@
   <meta name="robots" content="noindex">
   <title>Leaderboard Admin</title>
   <link rel="stylesheet" href="/style.css">
+  <script src="/filters.js"></script>
 </head>
 <body>
   <main>
     <header>
       <div>
         <h1>Leaderboard admin</h1>
-        <p class="sub"><a href="/">View the public board →</a></p>
+        <p class="sub"><a href="/" id="board-link">View the public board →</a></p>
       </div>
       <div class="toolbar" id="toolbar" hidden>
         <button id="refresh">Refresh</button>
@@ -31,10 +32,14 @@
     </form>
 
     <section id="panel" hidden>
-      <div class="panel-head">
-        <p id="summary" class="muted"></p>
-        <input id="filter" type="search" placeholder="Filter by team…" aria-label="Filter by team">
+      <div class="controls">
+        <div class="tabs" id="games" role="group" aria-label="Game type"></div>
+        <div class="filters">
+          <select id="seed" aria-label="Seed"><option value="">All seeds</option></select>
+          <input id="filter" type="search" placeholder="Filter by team…" aria-label="Filter by team">
+        </div>
       </div>
+      <p id="summary" class="muted summary"></p>
       <p id="panel-error" class="error" hidden></p>
       <div class="table-wrap">
         <table>
@@ -60,7 +65,8 @@
     const $ = (id) => document.getElementById(id);
 
     let code = sessionStorage.getItem(CODE_KEY);
-    let data = { leaderboard: [], submissions: [] };
+    let filters = readFilters();
+    let data = { game: '', gameTypes: [], leaderboard: [], submissions: [], seeds: [] };
 
     async function api(method, query) {
       const res = await fetch(`/api/scores?${query}`, { method, headers: { 'x-admin-code': code } });
@@ -88,8 +94,11 @@
     }
 
     async function load() {
+      const query = filterQuery(filters);
       try {
-        data = await api('GET', 'all');
+        const body = await api('GET', query ? `all&${query}` : 'all');
+        if (query !== filterQuery(filters)) return; // the filters changed mid-request
+        data = body;
       } catch (err) {
         return showError(err);
       }
@@ -100,6 +109,15 @@
       render();
     }
 
+    function applyFilters(next) {
+      filters = next;
+      writeFilters(filters);
+      load();
+    }
+
+    // Seeds differ between game types, so switching games shows all of the new game's seeds.
+    const pickGame = (game) => applyFilters({ game, seeds: [] });
+
     function cell(content, className, title) {
       const td = document.createElement('td');
       td.append(content);
@@ -109,13 +127,21 @@
     }
 
     function render() {
+      const { seeds } = filters;
+      renderGameTabs($('games'), data.gameTypes, data.game, pickGame);
+      renderSeedOptions($('seed'), data.seeds, seeds);
+      const boardQuery = filterQuery(filters);
+      $('board-link').href = boardQuery ? `/?${boardQuery}` : '/';
+
+      // Badges and warnings describe the board being viewed.
+      const scope = `${data.game}${seeds.length ? ` on ${describeSeeds(seeds)}` : ''}`;
       const bestById = new Map(data.leaderboard.map((r) => [r.id, r]));
       const query = $('filter').value.trim().toLowerCase();
       const shown = data.submissions.filter((s) => s.team.toLowerCase().includes(query));
 
       $('summary').textContent =
         `${data.submissions.length} submission${data.submissions.length === 1 ? '' : 's'} ` +
-        `from ${data.leaderboard.length} team${data.leaderboard.length === 1 ? '' : 's'}`;
+        `from ${data.leaderboard.length} team${data.leaderboard.length === 1 ? '' : 's'} in ${scope}`;
 
       $('rows').replaceChildren(...shown.map((s) => {
         const best = bestById.get(s.id);
@@ -133,10 +159,10 @@
           let warning = '';
           if (best) {
             warning = best.runs === 1
-              ? '\n\nThis is their only run, so the team will disappear from the board.'
-              : '\n\nThis is their best run; their next-best run will take its place.';
+              ? `\n\nThis is their only run in ${scope}, so the team will disappear from that board.`
+              : `\n\nThis is their best run in ${scope}; their next-best run will take its place.`;
           }
-          if (!confirm(`Delete ${s.team}'s score of ${s.score} (seed ${s.seed})?${warning}`)) return;
+          if (!confirm(`Delete ${s.team}'s ${s.gameType} score of ${s.score} (seed ${s.seed})?${warning}`)) return;
           del.disabled = true;
           try {
             await api('DELETE', `id=${encodeURIComponent(s.id)}`);
@@ -160,7 +186,7 @@
         return tr;
       }));
 
-      $('empty').textContent = query ? 'No submissions match that filter.' : 'No submissions yet.';
+      $('empty').textContent = query ? 'No submissions match that filter.' : `No submissions in ${scope} yet.`;
       $('empty').hidden = shown.length > 0;
     }
 
@@ -172,8 +198,10 @@
     };
 
     $('clear').onclick = async () => {
-      const n = data.submissions.length;
-      const answer = prompt(`This permanently deletes all ${n} submissions from the leaderboard.\n\nType CLEAR to confirm.`);
+      const answer = prompt(
+        'This permanently deletes every submission, for every game type and seed, not just the board you are viewing.\n\n' +
+        'Type CLEAR to confirm.',
+      );
       if (answer?.trim() !== 'CLEAR') return;
       try {
         await api('DELETE', 'all');
@@ -186,6 +214,7 @@
     $('refresh').onclick = load;
     $('signout').onclick = () => signOut();
     $('filter').oninput = render;
+    onSeedPicked($('seed'), (seeds) => applyFilters({ ...filters, seeds }));
 
     // Keep the list current while the page is open.
     setInterval(() => { if (code && !document.hidden) load(); }, 10000);

@@ -1,7 +1,7 @@
 // Example client for the hackathon leaderboard. Copy submitScore into the
 // evaluation binary and call it once the score is computed.
 //
-//	go run submit.go -team "Team Rocket" -score 0.1234 -seed 42
+//	go run submit.go -game Wordle -team "Team Rocket" -score 0.1234 -seed 42
 package main
 
 import (
@@ -18,10 +18,17 @@ import (
 // Override with the LEADERBOARD_URL environment variable.
 const defaultLeaderboardURL = "https://hackathon-leaderboard-alpha.vercel.app"
 
+// The game types the leaderboard accepts; each has its own board.
+const (
+	GameWarmup = "Warmup"
+	GameWordle = "Wordle"
+)
+
 type submission struct {
-	Team  string  `json:"team"`
-	Score float64 `json:"score"`
-	Seed  int64   `json:"seed"` // any integer type or a string works; the server stores it exactly
+	Team     string  `json:"team"`
+	Score    float64 `json:"score"`
+	Seed     int64   `json:"seed"` // any integer type or a string works; the server stores it exactly
+	GameType string  `json:"gameType"`
 }
 
 type submitResult struct {
@@ -33,14 +40,14 @@ type submitResult struct {
 	Error string `json:"error"`
 }
 
-// submitScore posts one result and returns the team's current rank.
-func submitScore(team string, score float64, seed int64) (*submitResult, error) {
+// submitScore posts one result and returns the team's current rank for that game type and seed.
+func submitScore(gameType, team string, score float64, seed int64) (*submitResult, error) {
 	baseURL := os.Getenv("LEADERBOARD_URL")
 	if baseURL == "" {
 		baseURL = defaultLeaderboardURL
 	}
 
-	body, err := json.Marshal(submission{Team: team, Score: score, Seed: seed})
+	body, err := json.Marshal(submission{Team: team, Score: score, Seed: seed, GameType: gameType})
 	if err != nil {
 		return nil, err
 	}
@@ -63,6 +70,7 @@ func submitScore(team string, score float64, seed int64) (*submitResult, error) 
 }
 
 func main() {
+	game := flag.String("game", GameWarmup, "game type: "+GameWarmup+" or "+GameWordle)
 	team := flag.String("team", "", "team name")
 	score := flag.Float64("score", 0, "score (lower is better)")
 	seed := flag.Int64("seed", 0, "seed used for the evaluation")
@@ -71,9 +79,10 @@ func main() {
 		log.Fatal("-team is required")
 	}
 
-	result, err := submitScore(*team, *score, *seed)
+	result, err := submitScore(*game, *team, *score, *seed)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Submitted! %s is ranked #%d (best score %g, seed %s)\n", *team, result.Rank, result.Best.Score, result.Best.Seed)
+	fmt.Printf("Submitted! %s is ranked #%d in %s on seed %s (best score %g)\n",
+		*team, result.Rank, *game, result.Best.Seed, result.Best.Score)
 }
