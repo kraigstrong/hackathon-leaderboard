@@ -132,6 +132,17 @@ describe('cost reporting', () => {
     assert.deepEqual(body.leaderboard.map((r) => [r.score, r.costUsd]), [[2, 25.5], [5, 10], [9, 99]]);
   });
 
+  test('length limits count characters, not UTF-16 code units', async () => {
+    // 65 emoji are 130 UTF-16 units but only 65 characters, so they're within the 128 limit.
+    const emoji = '🙂'.repeat(65);
+    const ok = await submit({ team: 'Alpha', score: 1, seed: emoji, costSession: emoji });
+    assert.equal(ok.status, 201);
+    assert.equal(ok.body.submission.costSession, emoji);
+
+    const tooLong = await submit({ team: 'Alpha', score: 1, seed: 1, costSession: '🙂'.repeat(129) });
+    assert.equal(tooLong.status, 400);
+  });
+
   for (const [name, payload] of [
     ['a non-numeric costUsd', { team: 'A', score: 1, seed: 1, costUsd: '32.97' }],
     ['a negative costUsd', { team: 'A', score: 1, seed: 1, costUsd: -1 }],
