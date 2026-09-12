@@ -48,7 +48,9 @@
               <th>Submitted</th>
               <th>Team</th>
               <th class="num">Score</th>
+              <th class="num">Cost</th>
               <th>Seed</th>
+              <th>Session</th>
               <th>Standing</th>
               <th></th>
             </tr>
@@ -179,7 +181,9 @@
           cell(submitted.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }), 'muted', s.createdAt),
           cell(s.team, 'team'),
           cell(String(s.score), 'num'),
+          cell(formatCost(s.costUsd), 'num muted'),
           cell(s.seed, 'seed', s.seed),
+          cell(s.costSession ?? '—', 'seed', s.costSession),
           cell(standing),
           cell(del, 'num'),
         );

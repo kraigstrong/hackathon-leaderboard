@@ -1,8 +1,9 @@
 # Hackathon Leaderboard
 
 A live leaderboard for the hackathon. Evaluation binaries POST a team name, score, seed, and game type; the board shows
-each team's best (lowest) score. Each game type (**Warmup** and **Wordle**) has its own board, and viewers can narrow a
-board to specific seeds. An admin page, protected by an access code, can delete single submissions or clear the board.
+each team's best (lowest) score, with the cost of that run when the bot reports one. Each game type (**Warmup** and
+**Wordle**) has its own board, and viewers can narrow a board to specific seeds. An admin page, protected by an access
+code, can delete single submissions or clear the board.
 
 ## Boards and seeds
 
@@ -57,21 +58,27 @@ npm test
 ```bash
 curl -X POST https://hackathon-leaderboard-alpha.vercel.app/api/scores \
   -H 'content-type: application/json' \
-  -d '{"team": "Team Rocket", "score": 0.1234, "seed": 42, "gameType": "Wordle"}'
+  -d '{"team": "Team Rocket", "score": 0.1234, "seed": 42, "gameType": "Wordle",
+       "costUsd": 32.9749, "costSession": "23420-f23e"}'
 ```
 
-| Field      | Type             | Rules                                                                      |
-|------------|------------------|----------------------------------------------------------------------------|
-| `team`     | string           | 1–64 characters. Case and extra whitespace are ignored for grouping.       |
-| `score`    | number           | Finite. **Lower is better.**                                               |
-| `seed`     | number or string | Required, up to 128 characters. Stored exactly, including 64-bit integers. |
-| `gameType` | string           | `Warmup` or `Wordle` (any case). Anything else is rejected.                |
+| Field         | Type             | Rules                                                                      |
+|---------------|------------------|----------------------------------------------------------------------------|
+| `team`        | string           | 1–64 characters. Case and extra whitespace are ignored for grouping.       |
+| `score`       | number           | Finite. **Lower is better.**                                               |
+| `seed`        | number or string | Required, up to 128 characters. Stored exactly, including 64-bit integers. |
+| `gameType`    | string           | `Warmup` or `Wordle` (any case). Anything else is rejected.                |
+| `costUsd`     | number           | Optional. Non-negative. Shown on the board for each team's best run.       |
+| `costSession` | string           | Optional. Up to 128 characters. Shown on the admin page.                   |
 
 Returns `201` with the team's rank and best score for that game type and seed:
 
 ```json
 {
-  "submission": { "id": "…", "team": "Team Rocket", "score": 0.1234, "seed": "42", "gameType": "Wordle", "createdAt": "…" },
+  "submission": {
+    "id": "…", "team": "Team Rocket", "score": 0.1234, "seed": "42", "gameType": "Wordle",
+    "costUsd": 32.9749, "costSession": "23420-f23e", "createdAt": "…"
+  },
   "rank": 3,
   "best": { "score": 0.1234, "seed": "42" }
 }
@@ -93,7 +100,10 @@ the game type, most recently used first. The response is cached at the CDN for 2
 {
   "game": "Wordle",
   "gameTypes": ["Warmup", "Wordle"],
-  "leaderboard": [{ "rank": 1, "team": "…", "score": 0.1, "seed": "7", "id": "…", "bestAt": "…", "lastAt": "…", "runs": 4 }],
+  "leaderboard": [{
+    "rank": 1, "team": "…", "score": 0.1, "costUsd": 32.97, "seed": "7", "id": "…",
+    "bestAt": "…", "lastAt": "…", "runs": 4
+  }],
   "seeds": [{ "seed": "7", "submissions": 12, "teams": 5, "lastAt": "…" }]
 }
 ```

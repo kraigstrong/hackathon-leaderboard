@@ -98,6 +98,45 @@ describe('GET /api/scores', () => {
   });
 });
 
+describe('cost reporting', () => {
+  test('stores costUsd and costSession when sent', async () => {
+    const res = await submit({ team: 'Alpha', score: 1, seed: 1, costUsd: 32.9749, costSession: '23420-f23e' });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.submission.costUsd, 32.9749);
+    assert.equal(res.body.submission.costSession, '23420-f23e');
+  });
+
+  test('both fields are optional', async () => {
+    const res = await submit({ team: 'Alpha', score: 1, seed: 1 });
+    assert.equal(res.status, 201);
+    assert.equal('costUsd' in res.body.submission, false);
+    assert.equal('costSession' in res.body.submission, false);
+    assert.equal((await call(GET)).body.leaderboard[0].costUsd, null);
+  });
+
+  test('the board reports the cost of the team’s best run', async () => {
+    await submit({ team: 'Alpha', score: 5, seed: 1, costUsd: 10 });
+    await submit({ team: 'Alpha', score: 2, seed: 1, costUsd: 25.5 });
+    await submit({ team: 'Alpha', score: 9, seed: 1, costUsd: 99 });
+    const { body } = await call(GET);
+    assert.deepEqual(body.leaderboard.map((r) => [r.score, r.costUsd]), [[2, 25.5]]);
+  });
+
+  for (const [name, payload] of [
+    ['a non-numeric costUsd', { team: 'A', score: 1, seed: 1, costUsd: '32.97' }],
+    ['a negative costUsd', { team: 'A', score: 1, seed: 1, costUsd: -1 }],
+    ['a non-string costSession', { team: 'A', score: 1, seed: 1, costSession: 42 }],
+    ['a blank costSession', { team: 'A', score: 1, seed: 1, costSession: '  ' }],
+    ['an overlong costSession', { team: 'A', score: 1, seed: 1, costSession: 'x'.repeat(129) }],
+  ]) {
+    test(`rejects ${name}`, async () => {
+      const res = await submit(payload);
+      assert.equal(res.status, 400);
+      assert.ok(res.body.error);
+    });
+  }
+});
+
 describe('game types', () => {
   test('gameType matches case-insensitively and is stored canonically', async () => {
     const res = await submit({ team: 'Alpha', score: 1, seed: 1, gameType: ' wordle ' });

@@ -43,16 +43,18 @@ export const GET = handle(async (request, url) => {
 });
 
 // POST /api/scores  {"team": "...", "score": 1.23, "seed": 42, "gameType": "Wordle"}
+//                   optionally with {"costUsd": 32.97, "costSession": "23420-f23e"}
 // Responds with the team's rank and best score for that game type and seed.
 export const POST = handle(async (request) => {
-  const { team, score, seed, gameType } = parseSubmission(await request.text());
+  const fields = parseSubmission(await request.text());
+  const { team, seed, gameType } = fields;
   const store = getStore();
   const existing = await store.list();
   if (existing.length >= MAX_SUBMISSIONS) {
     throw new HttpError(503, 'Leaderboard is full; ask an admin to clear old submissions');
   }
 
-  const submission = { id: randomUUID(), team, score, seed, gameType, createdAt: new Date().toISOString() };
+  const submission = { id: randomUUID(), ...fields, createdAt: new Date().toISOString() };
   await store.add(submission);
 
   const board = buildLeaderboard(filterBySeeds(filterByGameType([...existing, submission], gameType), [seed]));

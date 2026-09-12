@@ -29,6 +29,7 @@
             <th class="rank">#</th>
             <th>Team</th>
             <th class="num">Score</th>
+            <th class="num">Cost</th>
             <th class="col-seed">Seed</th>
             <th class="num">Runs</th>
             <th class="num">Last run</th>
@@ -89,6 +90,7 @@
           cell(r.rank, 'rank'),
           cell(r.team, 'team'),
           cell(String(r.score), 'num score'),
+          cell(formatCost(r.costUsd), 'num muted'),
           cell(r.seed, 'seed col-seed', r.seed),
           cell(r.runs, 'num muted'),
           cell(ago(r.lastAt), 'num muted', new Date(r.lastAt).toLocaleString()),
