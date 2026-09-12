@@ -37,15 +37,12 @@ type submission struct {
 }
 
 type submitResult struct {
-	Rank int `json:"rank"`
-	Best struct {
-		Score float64 `json:"score"`
-		Seed  string  `json:"seed"`
-	} `json:"best"`
+	Rank  int    `json:"rank"`  // where this run ranks on the board
+	Total int    `json:"total"` // how many runs are on that board
 	Error string `json:"error"`
 }
 
-// submitScore posts one result and returns the team's current rank for that game type and seed.
+// submitScore posts one result and returns where it ranks for that game type and seed.
 // costUsd and costSession are optional: pass a nil costUsd and an empty costSession to leave them out.
 func submitScore(gameType, team string, score float64, seed int64, costUsd *float64, costSession string) (*submitResult, error) {
 	baseURL := os.Getenv("LEADERBOARD_URL")
@@ -103,6 +100,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Submitted! %s is ranked #%d in %s on seed %s (best score %g)\n",
-		*team, result.Rank, *game, result.Best.Seed, result.Best.Score)
+	fmt.Printf("Submitted! %s scored %g in %s on seed %d: run ranked #%d of %d\n",
+		*team, *score, *game, *seed, result.Rank, result.Total)
 }
