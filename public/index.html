@@ -12,7 +12,7 @@
     <header>
       <div>
         <h1>Hackathon Leaderboard</h1>
-        <p class="sub" id="subtitle">Best score per team · lower is better</p>
+        <p class="sub" id="subtitle">Every run · lower is better</p>
       </div>
       <div class="status" id="status"><span class="dot"></span><span id="status-text">Connecting…</span></div>
     </header>
@@ -29,9 +29,9 @@
             <th class="rank">#</th>
             <th>Team</th>
             <th class="num">Score</th>
+            <th class="num">Cost</th>
             <th class="col-seed">Seed</th>
-            <th class="num">Runs</th>
-            <th class="num">Last run</th>
+            <th class="num">Submitted</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -52,8 +52,8 @@
     const statusText = document.getElementById('status-text');
 
     let filters = readFilters();
-    // Each team's best submission id from the previous render, used to highlight new bests.
-    let previousBest = null;
+    // Run ids from the previous render, used to highlight runs that just arrived.
+    let previousRuns = null;
 
     function ago(iso) {
       const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
@@ -77,25 +77,25 @@
       const { seeds } = filters;
       renderGameTabs(gamesEl, gameTypes, game, pickGame);
       renderSeedOptions(seedEl, knownSeeds, seeds);
-      subtitleEl.textContent = `${game} · best score per team on ${describeSeeds(seeds)} · lower is better`;
+      subtitleEl.textContent = `${game} · every run on ${describeSeeds(seeds)} · lower is better`;
       // With one seed selected every row would show the same seed.
       tableEl.classList.toggle('one-seed', seeds.length === 1);
 
       rowsEl.replaceChildren(...leaderboard.map((r) => {
         const tr = document.createElement('tr');
         if (r.rank <= 3) tr.dataset.podium = r.rank;
-        if (previousBest && previousBest.get(r.team.toLowerCase()) !== r.id) tr.classList.add('changed');
+        if (previousRuns && !previousRuns.has(r.id)) tr.classList.add('changed');
         tr.append(
           cell(r.rank, 'rank'),
           cell(r.team, 'team'),
           cell(String(r.score), 'num score'),
+          cell(formatCost(r.costUsd), 'num muted'),
           cell(r.seed, 'seed col-seed', r.seed),
-          cell(r.runs, 'num muted'),
-          cell(ago(r.lastAt), 'num muted', new Date(r.lastAt).toLocaleString()),
+          cell(ago(r.createdAt), 'num muted', new Date(r.createdAt).toLocaleString()),
         );
         return tr;
       }));
-      previousBest = new Map(leaderboard.map((r) => [r.team.toLowerCase(), r.id]));
+      previousRuns = new Set(leaderboard.map((r) => r.id));
 
       emptyEl.textContent = seeds.length
         ? `No ${game} scores on ${describeSeeds(seeds)} yet. Waiting for the first submission…`
@@ -125,7 +125,7 @@
     function applyFilters(next) {
       filters = next;
       writeFilters(filters);
-      previousBest = null; // switching views isn't a new best
+      previousRuns = null; // switching views isn't a new run
       refresh();
     }
 

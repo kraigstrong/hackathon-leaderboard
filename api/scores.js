@@ -43,21 +43,24 @@ export const GET = handle(async (request, url) => {
 });
 
 // POST /api/scores  {"team": "...", "score": 1.23, "seed": 42, "gameType": "Wordle"}
-// Responds with the team's rank and best score for that game type and seed.
+//                   optionally with {"costUsd": 32.97, "costSession": "23420-f23e"}
+// Responds with where this run ranks on its game type's board for that seed.
 export const POST = handle(async (request) => {
-  const { team, score, seed, gameType } = parseSubmission(await request.text());
+  const fields = parseSubmission(await request.text());
+  const { seed, gameType } = fields;
   const store = getStore();
   const existing = await store.list();
   if (existing.length >= MAX_SUBMISSIONS) {
     throw new HttpError(503, 'Leaderboard is full; ask an admin to clear old submissions');
   }
 
-  const submission = { id: randomUUID(), team, score, seed, gameType, createdAt: new Date().toISOString() };
+  const submission = { id: randomUUID(), ...fields, createdAt: new Date().toISOString() };
   await store.add(submission);
 
+  // Where this run landed on its game type's board for that seed.
   const board = buildLeaderboard(filterBySeeds(filterByGameType([...existing, submission], gameType), [seed]));
-  const row = board.find((r) => teamKey(r.team) === teamKey(team));
-  return json({ submission, rank: row.rank, best: { score: row.score, seed: row.seed } }, 201);
+  const row = board.find((r) => r.id === submission.id);
+  return json({ submission, rank: row.rank, total: board.length }, 201);
 });
 
 // DELETE /api/scores?id=<id>  (admin) remove one submission

@@ -1,8 +1,10 @@
 # Hackathon Leaderboard
 
 A live leaderboard for the hackathon. Evaluation binaries POST a team name, score, seed, and game type; the board shows
-each team's best (lowest) score. Each game type (**Warmup** and **Wordle**) has its own board, and viewers can narrow a
-board to specific seeds. An admin page, protected by an access code, can delete single submissions or clear the board.
+every run, lowest score first, with each run's cost when the bot reports one. Teams appear once per run, since one of
+the games needs repeated submissions to evaluate cost. Each game type (**Warmup** and
+**Wordle**) has its own board, and viewers can narrow a board to specific seeds. An admin page, protected by an access
+code, can delete single submissions or clear the board.
 
 ## Boards and seeds
 
@@ -57,23 +59,29 @@ npm test
 ```bash
 curl -X POST https://hackathon-leaderboard-alpha.vercel.app/api/scores \
   -H 'content-type: application/json' \
-  -d '{"team": "Team Rocket", "score": 0.1234, "seed": 42, "gameType": "Wordle"}'
+  -d '{"team": "Team Rocket", "score": 0.1234, "seed": 42, "gameType": "Wordle",
+       "costUsd": 32.9749, "costSession": "23420-f23e"}'
 ```
 
-| Field      | Type             | Rules                                                                      |
-|------------|------------------|----------------------------------------------------------------------------|
-| `team`     | string           | 1–64 characters. Case and extra whitespace are ignored for grouping.       |
-| `score`    | number           | Finite. **Lower is better.**                                               |
-| `seed`     | number or string | Required, up to 128 characters. Stored exactly, including 64-bit integers. |
-| `gameType` | string           | `Warmup` or `Wordle` (any case). Anything else is rejected.                |
+| Field         | Type             | Rules                                                                      |
+|---------------|------------------|----------------------------------------------------------------------------|
+| `team`        | string           | 1–64 characters. Case and extra whitespace are ignored for grouping.       |
+| `score`       | number           | Finite. **Lower is better.**                                               |
+| `seed`        | number or string | Required, up to 128 characters. Stored exactly, including 64-bit integers. |
+| `gameType`    | string           | `Warmup` or `Wordle` (any case). Anything else is rejected.                |
+| `costUsd`     | number           | Optional. Non-negative. Shown on the board for each team's best run.       |
+| `costSession` | string           | Optional. Up to 128 characters. Shown on the admin page.                   |
 
-Returns `201` with the team's rank and best score for that game type and seed:
+Returns `201` with where this run ranks on its board, that is, its game type and seed:
 
 ```json
 {
-  "submission": { "id": "…", "team": "Team Rocket", "score": 0.1234, "seed": "42", "gameType": "Wordle", "createdAt": "…" },
+  "submission": {
+    "id": "…", "team": "Team Rocket", "score": 0.1234, "seed": "42", "gameType": "Wordle",
+    "costUsd": 32.9749, "costSession": "23420-f23e", "createdAt": "…"
+  },
   "rank": 3,
-  "best": { "score": 0.1234, "seed": "42" }
+  "total": 17
 }
 ```
 
@@ -86,14 +94,17 @@ Errors return `4xx` with `{"error": "…"}`. See [`examples/submit.go`](examples
 | `game=Wordle`         | Which game type's board to return. Defaults to `Warmup`.                   |
 | `seed=X` (repeatable) | Count only runs on these seeds. Omit for all seeds.                        |
 
-One row per team, ranked by its best score. Ties go to whichever team got there first. `seeds` lists every seed seen for
-the game type, most recently used first. The response is cached at the CDN for 2 seconds.
+One row per run, lowest score first; a team appears once for each run it submitted. Ties go to whichever run was
+submitted first. `seeds` lists every seed seen for the game type, most recently used first. The response is cached at
+the CDN for 2 seconds.
 
 ```json
 {
   "game": "Wordle",
   "gameTypes": ["Warmup", "Wordle"],
-  "leaderboard": [{ "rank": 1, "team": "…", "score": 0.1, "seed": "7", "id": "…", "bestAt": "…", "lastAt": "…", "runs": 4 }],
+  "leaderboard": [{
+    "rank": 1, "id": "…", "team": "…", "score": 0.1, "costUsd": 32.97, "seed": "7", "createdAt": "…"
+  }],
   "seeds": [{ "seed": "7", "submissions": 12, "teams": 5, "lastAt": "…" }]
 }
 ```

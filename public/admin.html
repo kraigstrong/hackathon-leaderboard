@@ -48,7 +48,9 @@
               <th>Submitted</th>
               <th>Team</th>
               <th class="num">Score</th>
+              <th class="num">Cost</th>
               <th>Seed</th>
+              <th>Session</th>
               <th>Standing</th>
               <th></th>
             </tr>
@@ -135,33 +137,29 @@
 
       // Badges and warnings describe the board being viewed.
       const scope = `${data.game}${seeds.length ? ` on ${describeSeeds(seeds)}` : ''}`;
-      const bestById = new Map(data.leaderboard.map((r) => [r.id, r]));
+      const rankById = new Map(data.leaderboard.map((r) => [r.id, r.rank]));
       const query = $('filter').value.trim().toLowerCase();
       const shown = data.submissions.filter((s) => s.team.toLowerCase().includes(query));
+      const teams = new Set(data.submissions.map((s) => s.team.toLowerCase())).size;
 
       $('summary').textContent =
         `${data.submissions.length} submission${data.submissions.length === 1 ? '' : 's'} ` +
-        `from ${data.leaderboard.length} team${data.leaderboard.length === 1 ? '' : 's'} in ${scope}`;
+        `from ${teams} team${teams === 1 ? '' : 's'} in ${scope}`;
 
       $('rows').replaceChildren(...shown.map((s) => {
-        const best = bestById.get(s.id);
+        const rank = rankById.get(s.id);
         let standing = '';
-        if (best) {
+        if (rank) {
           standing = document.createElement('span');
           standing.className = 'badge';
-          standing.textContent = `Best · #${best.rank}`;
+          standing.textContent = `#${rank}`;
         }
 
         const del = document.createElement('button');
         del.className = 'danger small';
         del.textContent = 'Delete';
         del.onclick = async () => {
-          let warning = '';
-          if (best) {
-            warning = best.runs === 1
-              ? `\n\nThis is their only run in ${scope}, so the team will disappear from that board.`
-              : `\n\nThis is their best run in ${scope}; their next-best run will take its place.`;
-          }
+          const warning = rank ? `\n\nIt is ranked #${rank} in ${scope}.` : '';
           if (!confirm(`Delete ${s.team}'s ${s.gameType} score of ${s.score} (seed ${s.seed})?${warning}`)) return;
           del.disabled = true;
           try {
@@ -179,7 +177,9 @@
           cell(submitted.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }), 'muted', s.createdAt),
           cell(s.team, 'team'),
           cell(String(s.score), 'num'),
+          cell(formatCost(s.costUsd), 'num muted'),
           cell(s.seed, 'seed', s.seed),
+          cell(s.costSession ?? '—', 'seed', s.costSession),
           cell(standing),
           cell(del, 'num'),
         );

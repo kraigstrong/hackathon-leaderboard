@@ -29,13 +29,21 @@ beforeEach(async () => {
 });
 
 describe('POST /api/scores', () => {
-  test('accepts a submission and reports the team rank', async () => {
+  test('accepts a submission and reports where the run ranks', async () => {
     const res = await submit({ team: 'Alpha', score: 12.5, seed: 42 });
     assert.equal(res.status, 201);
     assert.equal(res.body.submission.team, 'Alpha');
     assert.equal(res.body.submission.score, 12.5);
     assert.equal(res.body.submission.seed, '42');
-    assert.equal(res.body.rank, 1);
+    assert.deepEqual({ rank: res.body.rank, total: res.body.total }, { rank: 1, total: 1 });
+  });
+
+  test('a team’s later run is ranked against its own earlier runs', async () => {
+    await submit({ team: 'Alpha', score: 5, seed: 42 });
+    const worse = await submit({ team: 'Alpha', score: 9, seed: 42 });
+    assert.deepEqual({ rank: worse.body.rank, total: worse.body.total }, { rank: 2, total: 2 });
+    const better = await submit({ team: 'Alpha', score: 1, seed: 42 });
+    assert.deepEqual({ rank: better.body.rank, total: better.body.total }, { rank: 1, total: 3 });
   });
 
   test('keeps 64-bit numeric seeds exact', async () => {
@@ -72,7 +80,7 @@ describe('POST /api/scores', () => {
 });
 
 describe('GET /api/scores', () => {
-  test('ranks each team by its lowest score', async () => {
+  test('lists every run, lowest score first, including repeats from one team', async () => {
     await submit({ team: 'Alpha', score: 10, seed: 1 });
     await submit({ team: 'Bravo', score: 5, seed: 2 });
     await submit({ team: 'alpha', score: 3, seed: 3 }); // same team, different case
@@ -82,10 +90,12 @@ describe('GET /api/scores', () => {
     assert.equal(status, 200);
     assert.match(headers.get('cache-control'), /s-maxage=2/);
     assert.deepEqual(
-      body.leaderboard.map((r) => [r.rank, r.team, r.score, r.seed, r.runs]),
+      body.leaderboard.map((r) => [r.rank, r.team, r.score, r.seed]),
       [
-        [1, 'Alpha', 3, '3', 3],
-        [2, 'Bravo', 5, '2', 1],
+        [1, 'alpha', 3, '3'],
+        [2, 'Bravo', 5, '2'],
+        [3, 'Alpha', 10, '1'],
+        [4, 'Alpha', 20, '4'],
       ],
     );
   });
@@ -96,6 +106,56 @@ describe('GET /api/scores', () => {
     const { body } = await call(GET);
     assert.deepEqual(body.leaderboard.map((r) => r.team), ['First', 'Second']);
   });
+});
+
+describe('cost reporting', () => {
+  test('stores costUsd and costSession when sent', async () => {
+    const res = await submit({ team: 'Alpha', score: 1, seed: 1, costUsd: 32.9749, costSession: '23420-f23e' });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.submission.costUsd, 32.9749);
+    assert.equal(res.body.submission.costSession, '23420-f23e');
+  });
+
+  test('both fields are optional', async () => {
+    const res = await submit({ team: 'Alpha', score: 1, seed: 1 });
+    assert.equal(res.status, 201);
+    assert.equal('costUsd' in res.body.submission, false);
+    assert.equal('costSession' in res.body.submission, false);
+    assert.equal((await call(GET)).body.leaderboard[0].costUsd, null);
+  });
+
+  test('each run carries its own cost', async () => {
+    await submit({ team: 'Alpha', score: 5, seed: 1, costUsd: 10 });
+    await submit({ team: 'Alpha', score: 2, seed: 1, costUsd: 25.5 });
+    await submit({ team: 'Alpha', score: 9, seed: 1, costUsd: 99 });
+    const { body } = await call(GET);
+    assert.deepEqual(body.leaderboard.map((r) => [r.score, r.costUsd]), [[2, 25.5], [5, 10], [9, 99]]);
+  });
+
+  test('length limits count characters, not UTF-16 code units', async () => {
+    // 65 emoji are 130 UTF-16 units but only 65 characters, so they're within the 128 limit.
+    const emoji = '🙂'.repeat(65);
+    const ok = await submit({ team: 'Alpha', score: 1, seed: emoji, costSession: emoji });
+    assert.equal(ok.status, 201);
+    assert.equal(ok.body.submission.costSession, emoji);
+
+    const tooLong = await submit({ team: 'Alpha', score: 1, seed: 1, costSession: '🙂'.repeat(129) });
+    assert.equal(tooLong.status, 400);
+  });
+
+  for (const [name, payload] of [
+    ['a non-numeric costUsd', { team: 'A', score: 1, seed: 1, costUsd: '32.97' }],
+    ['a negative costUsd', { team: 'A', score: 1, seed: 1, costUsd: -1 }],
+    ['a non-string costSession', { team: 'A', score: 1, seed: 1, costSession: 42 }],
+    ['a blank costSession', { team: 'A', score: 1, seed: 1, costSession: '  ' }],
+    ['an overlong costSession', { team: 'A', score: 1, seed: 1, costSession: 'x'.repeat(129) }],
+  ]) {
+    test(`rejects ${name}`, async () => {
+      const res = await submit(payload);
+      assert.equal(res.status, 400);
+      assert.ok(res.body.error);
+    });
+  }
 });
 
 describe('game types', () => {
@@ -151,19 +211,23 @@ describe('seed filtering', () => {
   test('?seed ranks only that seed’s runs', async () => {
     const { body } = await call(GET, { query: '?seed=final' });
     assert.deepEqual(
-      body.leaderboard.map((r) => [r.rank, r.team, r.score, r.runs]),
+      body.leaderboard.map((r) => [r.rank, r.team, r.score]),
       [
-        [1, 'Bravo', 3, 2],
-        [2, 'Alpha', 4, 1],
+        [1, 'Bravo', 3],
+        [2, 'Alpha', 4],
+        [3, 'Bravo', 9],
       ],
     );
   });
 
   test('repeated ?seed params combine seeds', async () => {
     const { body } = await call(GET, { query: '?seed=final&seed=practice' });
-    assert.deepEqual(body.leaderboard.map((r) => [r.team, r.score, r.runs]), [
-      ['Alpha', 1, 2],
-      ['Bravo', 2, 3],
+    assert.deepEqual(body.leaderboard.map((r) => [r.team, r.score]), [
+      ['Alpha', 1],
+      ['Bravo', 2],
+      ['Bravo', 3],
+      ['Alpha', 4],
+      ['Bravo', 9],
     ]);
   });
 
@@ -186,7 +250,7 @@ describe('seed filtering', () => {
   test('POST reports rank on the submitted seed', async () => {
     const res = await submit({ team: 'Charlie', score: 1.5, seed: 'final' });
     assert.equal(res.body.rank, 1); // would be #2 across all seeds, behind Alpha's practice 1
-    assert.deepEqual(res.body.best, { score: 1.5, seed: 'final' });
+    assert.equal(res.body.total, 4); // the three existing final runs plus this one
   });
 
   test('admin ?all&seed returns only that seed’s submissions', async () => {
@@ -214,18 +278,18 @@ describe('admin', () => {
     await submit({ team: 'Alpha', score: 2, seed: 2 });
     const { body } = await call(GET, { query: '?all', headers: ADMIN });
     assert.deepEqual(body.submissions.map((s) => s.seed), ['2', '1']);
-    assert.equal(body.leaderboard.length, 1);
+    assert.equal(body.leaderboard.length, 2);
   });
 
-  test('deleting a best score promotes the team’s next-best run', async () => {
-    const best = await submit({ team: 'Alpha', score: 1, seed: 1 });
+  test('deleting a run removes just that row and re-ranks the rest', async () => {
+    const top = await submit({ team: 'Alpha', score: 1, seed: 1 });
     await submit({ team: 'Alpha', score: 2, seed: 2 });
 
-    const res = await call(DELETE, { method: 'DELETE', query: `?id=${best.body.submission.id}`, headers: ADMIN });
+    const res = await call(DELETE, { method: 'DELETE', query: `?id=${top.body.submission.id}`, headers: ADMIN });
     assert.deepEqual(res.body, { deleted: 1 });
 
     const { body } = await call(GET);
-    assert.deepEqual(body.leaderboard.map((r) => [r.score, r.runs]), [[2, 1]]);
+    assert.deepEqual(body.leaderboard.map((r) => [r.rank, r.score]), [[1, 2]]);
   });
 
   test('deleting an unknown id returns 404', async () => {

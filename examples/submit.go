@@ -1,7 +1,8 @@
 // Example client for the hackathon leaderboard. Copy submitScore into the
 // evaluation binary and call it once the score is computed.
 //
-//	go run submit.go -game Wordle -team "Team Rocket" -score 0.1234 -seed 42
+//	go run submit.go -game Wordle -team "Team Rocket" -score 0.1234 -seed 42 \
+//	  -cost 32.9749 -cost-session 23420-f23e
 package main
 
 import (
@@ -29,25 +30,34 @@ type submission struct {
 	Score    float64 `json:"score"`
 	Seed     int64   `json:"seed"` // any integer type or a string works; the server stores it exactly
 	GameType string  `json:"gameType"`
+
+	// Optional cost reporting; omitted when not set.
+	CostUSD     *float64 `json:"costUsd,omitempty"`
+	CostSession string   `json:"costSession,omitempty"`
 }
 
 type submitResult struct {
-	Rank int `json:"rank"`
-	Best struct {
-		Score float64 `json:"score"`
-		Seed  string  `json:"seed"`
-	} `json:"best"`
+	Rank  int    `json:"rank"`  // where this run ranks on the board
+	Total int    `json:"total"` // how many runs are on that board
 	Error string `json:"error"`
 }
 
-// submitScore posts one result and returns the team's current rank for that game type and seed.
-func submitScore(gameType, team string, score float64, seed int64) (*submitResult, error) {
+// submitScore posts one result and returns where it ranks for that game type and seed.
+// costUsd and costSession are optional: pass a nil costUsd and an empty costSession to leave them out.
+func submitScore(gameType, team string, score float64, seed int64, costUsd *float64, costSession string) (*submitResult, error) {
 	baseURL := os.Getenv("LEADERBOARD_URL")
 	if baseURL == "" {
 		baseURL = defaultLeaderboardURL
 	}
 
-	body, err := json.Marshal(submission{Team: team, Score: score, Seed: seed, GameType: gameType})
+	body, err := json.Marshal(submission{
+		Team:        team,
+		Score:       score,
+		Seed:        seed,
+		GameType:    gameType,
+		CostUSD:     costUsd,
+		CostSession: costSession,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -74,15 +84,22 @@ func main() {
 	team := flag.String("team", "", "team name")
 	score := flag.Float64("score", 0, "score (lower is better)")
 	seed := flag.Int64("seed", 0, "seed used for the evaluation")
+	cost := flag.Float64("cost", -1, "optional cost in USD; negative means don't report it")
+	costSession := flag.String("cost-session", "", "optional cost session id")
 	flag.Parse()
 	if *team == "" {
 		log.Fatal("-team is required")
 	}
 
-	result, err := submitScore(*game, *team, *score, *seed)
+	var costUsd *float64
+	if *cost >= 0 {
+		costUsd = cost
+	}
+
+	result, err := submitScore(*game, *team, *score, *seed, costUsd, *costSession)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Submitted! %s is ranked #%d in %s on seed %s (best score %g)\n",
-		*team, result.Rank, *game, result.Best.Seed, result.Best.Score)
+	fmt.Printf("Submitted! %s scored %g in %s on seed %d: run ranked #%d of %d\n",
+		*team, *score, *game, *seed, result.Rank, result.Total)
 }

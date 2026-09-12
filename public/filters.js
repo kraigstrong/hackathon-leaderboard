@@ -2,6 +2,12 @@
 // The selection lives in the URL (?game=Wordle&seed=a&seed=b) so a filtered board can be
 // bookmarked or left open on a projector.
 
+// Costs are optional, and small ones need more decimals to stay meaningful.
+function formatCost(costUsd) {
+  if (typeof costUsd !== 'number') return '—';
+  return costUsd >= 0.01 || costUsd === 0 ? `$${costUsd.toFixed(2)}` : `$${costUsd.toFixed(4)}`;
+}
+
 // Seeds can't contain control characters, so this can never collide with a real seed.
 const MULTIPLE_SEEDS = 'multiple';
 
